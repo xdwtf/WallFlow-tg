@@ -41,8 +41,17 @@ import dagger.assisted.AssistedInject
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.MultipartBody
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody
+import retrofit2.HttpException
+import java.io.File
+import android.webkit.MimeTypeMap
 
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
@@ -133,6 +142,10 @@ class DownloadWorker @AssistedInject constructor(
                     progressCallback = this@DownloadWorker::notifyProgress,
                 )
             }
+
+            // Post the image to Telegram after download
+            postImageToTelegram(file.uri)
+
             if (wallpaperId != null) {
                 val tags = inputData.getStringArray(INPUT_KEY_TAGS) ?: emptyArray()
                 if (tags.isNotEmpty()) {
@@ -234,6 +247,85 @@ class DownloadWorker @AssistedInject constructor(
         return file
     }
 
+    // Function to post image to Telegram
+    private suspend fun postImageToTelegram(fileUri: Uri) {
+        val botToken = "123456:xxxxxxxxxx"
+        val chatId = "-10012345"
+        val file = File(fileUri.path ?: return)
+
+        if (!file.exists() || !file.canRead()) {
+            Log.e(TAG, "File does not exist or cannot be read")
+            return
+        }
+
+        val fileSize = file.length()
+        val maxPhotoSize = 10 * 1024 * 1024 // 10 MB
+        val maxDocumentSize = 50 * 1024 * 1024 // 50 MB
+
+        val extension = MimeTypeMap.getFileExtensionFromUrl(file.name)
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+
+        if (fileSize > maxDocumentSize) {
+            Log.e(TAG, "File size is larger than the maximum allowed size of 50 MB. Skipping upload.")
+            return
+        }
+
+        val currentDateTime = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val tags = inputData.getStringArray(INPUT_KEY_TAGS)?.joinToString(", ") ?: ""
+        val source = Source.valueOf(inputData.getString(INPUT_KEY_WALLPAPER_SOURCE) ?: "Unknown")
+
+        val caption = buildString {
+            append("File: ${file.name}\n")
+            append("Downloaded on: $currentDateTime\n")
+            if (tags.isNotEmpty()) {
+                append("Tags: $tags\n")
+            }
+            append("Source: $source")
+        }
+
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("chat_id", chatId)
+            .apply {
+                if (fileSize <= maxPhotoSize) {
+                    addFormDataPart("photo", file.name, file.readBytes().toRequestBody(mimeType.toMediaTypeOrNull()))
+                    addFormDataPart("caption", caption)
+                } else {
+                    addFormDataPart("document", file.name, file.readBytes().toRequestBody(mimeType.toMediaTypeOrNull()))
+                    addFormDataPart("caption", caption)
+                }
+            }
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.telegram.org/bot$botToken/send${if (fileSize <= maxPhotoSize) "Photo" else "Document"}")
+            .post(requestBody)
+            .build()
+
+        val maxRetries = 3
+        var attempt = 0
+
+        while (attempt < maxRetries) {
+            try {
+                val response = okHttpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to post image to Telegram: ${response.code} - ${response.message}")
+                } else {
+                    Log.i(TAG, "Image successfully posted to Telegram")
+                    return // Exit if successful
+                }
+            } catch (e: Exception) {
+                attempt++
+                if (attempt >= maxRetries) {
+                    Log.e(TAG, "Failed to post image to Telegram after $maxRetries attempts")
+                    break
+                }
+                Log.w(TAG, "Retrying to post image to Telegram, attempt $attempt", e)
+                delay(2000) // Wait before retrying
+            }
+        }
+    }
+    
     private suspend fun notifyProgress(
         total: Long,
         downloaded: Long,
