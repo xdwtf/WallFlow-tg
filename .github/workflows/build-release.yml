@@ -1,24 +1,24 @@
 name: Tagged Release
 
 permissions:
-  contents: "write"
-  packages: "write"
-  pull-requests: "read"
+  contents: write
+  packages: write
+  pull-requests: read
 
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
-      - name: set up JDK 17
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           java-version: '17'
@@ -31,57 +31,61 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean assembleRelease -Pgithub
 
-      - uses: r0adkll/sign-android-release@v1
-        id: sign_base_app
-        with:
-          releaseDirectory: app/build/outputs/apk/base/release
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "34.0.0"
-
-      - uses: r0adkll/sign-android-release@v1
-        id: sign_plus_app
-        with:
-          releaseDirectory: app/build/outputs/apk/plus/release
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "34.0.0"
-
-      - name: Install mmv
+      - name: List APK Files
         run: |
-          sudo apt-get update
-          sudo apt-get install mmv
+          echo "Listing all APK files:"
+          find ${GITHUB_WORKSPACE}/app/build/outputs/apk -name '*.apk'
 
-      - name: Delete unsigned apks
-        run: |
-          cd ${GITHUB_WORKSPACE}/app/build/outputs/apk/base/release
-          rm *-unsigned-aligned.apk
-          cd ${GITHUB_WORKSPACE}/app/build/outputs/apk/plus/release
-          rm *-unsigned-aligned.apk
-
-      - name: Rename signed apks
-        run: |
-          cd ${GITHUB_WORKSPACE}/app/build/outputs/apk/base/release
-          mmv '*-release-unsigned-signed.apk' '#1-${{ github.ref_name }}.apk'
-          cd ${GITHUB_WORKSPACE}/app/build/outputs/apk/plus/release
-          mmv '*-release-unsigned-signed.apk' '#1-${{ github.ref_name }}.apk'
-
-      - uses: actions/upload-artifact@v3
+      - name: Upload all APKs
+        uses: actions/upload-artifact@v3
         with:
-          name: signed_apks_${{ github.ref_name }}
-          path: app/build/outputs/apk/*/release/*-${{ github.ref_name }}.apk
+          name: apks
+          path: app/build/outputs/apk/**/*.apk
 
-      - name: Create Draft Release
-        uses: marvinpinto/action-automatic-releases@latest
+      - name: Upload app-plus-arm64-v8a APK
+        uses: actions/upload-artifact@v3
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "${{ github.ref_name }}"
-          prerelease: false
-          draft: true
-          files: app/build/outputs/apk/*/release/*-${{ github.ref_name }}.apk
+          name: app-plus-arm64-v8a-release.apk
+          path: app/build/outputs/apk/plus/release/app-plus-arm64-v8a-release-unsigned.apk
+
+      - name: Upload app-plus-x86 APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-plus-x86-release.apk
+          path: app/build/outputs/apk/plus/release/app-plus-x86-release-unsigned.apk
+
+      - name: Upload app-plus-x86_64 APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-plus-x86_64-release.apk
+          path: app/build/outputs/apk/plus/release/app-plus-x86_64-release-unsigned.apk
+
+      - name: Upload app-plus-armeabi-v7a APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-plus-armeabi-v7a-release.apk
+          path: app/build/outputs/apk/plus/release/app-plus-armeabi-v7a-release-unsigned.apk
+
+      - name: Upload app-base-x86 APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-base-x86-release.apk
+          path: app/build/outputs/apk/base/release/app-base-x86-release-unsigned.apk
+
+      - name: Upload app-base-x86_64 APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-base-x86_64-release.apk
+          path: app/build/outputs/apk/base/release/app-base-x86_64-release-unsigned.apk
+
+      - name: Upload app-base-arm64-v8a APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-base-arm64-v8a-release.apk
+          path: app/build/outputs/apk/base/release/app-base-arm64-v8a-release-unsigned.apk
+
+      - name: Upload app-base-armeabi-v7a APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-base-armeabi-v7a-release.apk
+          path: app/build/outputs/apk/base/release/app-base-armeabi-v7a-release-unsigned.apk
