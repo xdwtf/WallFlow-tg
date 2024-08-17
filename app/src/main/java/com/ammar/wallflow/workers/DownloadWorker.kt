@@ -302,12 +302,20 @@ class DownloadWorker @AssistedInject constructor(
             .post(requestBody)
             .build()
 
+        // Create a new OkHttpClient with increased timeout settings
+        val clientWithTimeout = okHttpClient.newBuilder()
+            .callTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
         val maxRetries = 3
         var attempt = 0
 
         while (attempt < maxRetries) {
             try {
-                val response = okHttpClient.newCall(request).execute()
+                val response = clientWithTimeout.newCall(request).execute()
                 if (!response.isSuccessful) {
                     Log.e(TAG, "Failed to post image to Telegram: ${response.code} - ${response.message}")
                 } else {
@@ -321,7 +329,7 @@ class DownloadWorker @AssistedInject constructor(
                     break
                 }
                 Log.w(TAG, "Retrying to post image to Telegram, attempt $attempt", e)
-                delay(2000) // Wait before retrying
+                delay((2000 * attempt).toLong()) // Exponential backoff
             }
         }
     }
